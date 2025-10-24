@@ -11,19 +11,24 @@ import com.google.ar.core.Plane
 import com.fatec.armeasure.utils.DxfGenerator
 import com.fatec.armeasure.utils.Point3D
 import com.fatec.armeasure.rendering.BackgroundRenderer
+import com.fatec.armeasure.rendering.PlaneRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.google.ar.core.Config
 import com.google.ar.core.Session
+import com.google.ar.core.TrackingState
+import com.google.ar.core.Camera
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.view.MotionEvent
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import android.view.Display
 import android.view.WindowManager
+import android.util.Log
 
 /**
  * Simplified AR measurement activity using pure ARCore
@@ -39,6 +44,14 @@ class ArMeasurementActivity : AppCompatActivity() {
 
     private var arSession: Session? = null
     private val backgroundRenderer = BackgroundRenderer()
+    private val planeRenderer = PlaneRenderer()
+
+    // Camera matrices
+    private val viewMatrix = FloatArray(16)
+    private val projectionMatrix = FloatArray(16)
+
+    // Track detected planes count for user feedback
+    private var lastPlaneCount = 0
 
     // List to store captured 3D points
     private val capturedPoints = mutableListOf<Point3D>()
@@ -92,8 +105,12 @@ class ArMeasurementActivity : AppCompatActivity() {
                 override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
                     GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
 
-                    // Initialize background renderer
+                    // Enable depth testing
+                    GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+
+                    // Initialize renderers
                     backgroundRenderer.createOnGlThread(this@ArMeasurementActivity)
+                    planeRenderer.createOnGlThread(this@ArMeasurementActivity)
 
                     // Set camera texture
                     arSession?.setCameraTextureName(backgroundRenderer.getTextureId())
@@ -115,12 +132,44 @@ class ArMeasurementActivity : AppCompatActivity() {
                     arSession?.let { session ->
                         try {
                             val frame = session.update()
+                            val camera = frame.camera
+
+                            // Only render if tracking
+                            if (camera.trackingState != TrackingState.TRACKING) {
+                                return@let
+                            }
 
                             // Draw camera background
                             backgroundRenderer.draw(frame)
 
+                            // Get camera matrices
+                            camera.getViewMatrix(viewMatrix, 0)
+                            camera.getProjectionMatrix(projectionMatrix, 0, 0.1f, 100f)
+
+                            // Get all tracked planes
+                            val allPlanes = session.getAllTrackables(Plane::class.java)
+                            val trackingPlanes = allPlanes.filter {
+                                it.trackingState == TrackingState.TRACKING
+                            }
+
+                            // Update status if plane count changed
+                            if (trackingPlanes.size != lastPlaneCount) {
+                                lastPlaneCount = trackingPlanes.size
+                                runOnUiThread {
+                                    if (trackingPlanes.isEmpty()) {
+                                        statusText.text = "Sök efter ytor... Rikta kameran mot golv/bord"
+                                    } else {
+                                        statusText.text = "Ytor hittade! Tryck för att placera punkt (${trackingPlanes.size} ytor)"
+                                    }
+                                }
+                            }
+
+                            // Draw detected planes
+                            planeRenderer.drawPlanes(trackingPlanes, viewMatrix, projectionMatrix)
+
                         } catch (e: Exception) {
                             e.printStackTrace()
+                            Log.e("ARMeasure", "Error in onDrawFrame", e)
                         }
                     }
                 }
@@ -154,13 +203,24 @@ class ArMeasurementActivity : AppCompatActivity() {
             try {
                 val frame = session.update()
 
+                // Log tap attempt
+                Log.d("ARMeasure", "Tap at ($x, $y)")
+
                 // Perform hit test at tap location
                 val hits = frame.hitTest(x, y)
 
+                Log.d("ARMeasure", "Hit test returned ${hits.size} hits")
+
                 // Find first hit on a plane
-                for (hit in hits) {
+                for ((index, hit) in hits.withIndex()) {
                     val trackable = hit.trackable
-                    if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
+                    Log.d("ARMeasure", "Hit $index: trackable type = ${trackable?.javaClass?.simpleName}")
+
+                    if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose) &&
+                        trackable.trackingState == TrackingState.TRACKING) {
+
+                        Log.d("ARMeasure", "Valid plane hit! Creating anchor")
+
                         // Create anchor at hit location
                         val anchor = hit.createAnchor()
 
@@ -173,11 +233,18 @@ class ArMeasurementActivity : AppCompatActivity() {
                             label = "P${capturedPoints.size}"
                         )
 
+                        Log.d("ARMeasure", "Point created: ${point.label} at (${point.x}, ${point.y}, ${point.z})")
+
                         // Set origin if this is the first point
                         if (originPoint == null) {
                             originPoint = point
                             runOnUiThread {
-                                statusText.text = "Startpunkt satt! Tryck för fler punkter"
+                                statusText.text = "Startpunkt (P0) satt! Tryck för fler punkter"
+                                Toast.makeText(this@ArMeasurementActivity, "P0 placerad!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            runOnUiThread {
+                                Toast.makeText(this@ArMeasurementActivity, "${point.label} placerad!", Toast.LENGTH_SHORT).show()
                             }
                         }
 
@@ -193,11 +260,26 @@ class ArMeasurementActivity : AppCompatActivity() {
                         // Haptic feedback
                         surfaceView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
 
-                        break
+                        return@let
                     }
                 }
+
+                // No valid hit found
+                Log.d("ARMeasure", "No valid plane hit found")
+                runOnUiThread {
+                    if (lastPlaneCount == 0) {
+                        Toast.makeText(this@ArMeasurementActivity, "Vänta på ytdetektering...", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@ArMeasurementActivity, "Tryck på en detekterad yta (blå område)", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
             } catch (e: Exception) {
                 e.printStackTrace()
+                Log.e("ARMeasure", "Error in handleTap", e)
+                runOnUiThread {
+                    Toast.makeText(this@ArMeasurementActivity, "Fel: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
