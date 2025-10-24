@@ -1,0 +1,68 @@
+name: Build AR Measurement APK
+
+on:
+  push:
+    branches:
+      - 'claude/ar-measurement-**'
+    paths:
+      - 'ar-measurement-app/**'
+  pull_request:
+    paths:
+      - 'ar-measurement-app/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: |
+          cd ar-measurement-app
+          chmod +x gradlew || true
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: wrapper
+          build-root-directory: ar-measurement-app
+
+      - name: Build debug APK
+        run: |
+          cd ar-measurement-app
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ar-measurement-debug-apk
+          path: ar-measurement-app/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Get APK info
+        run: |
+          cd ar-measurement-app/app/build/outputs/apk/debug
+          ls -lh app-debug.apk
+          echo "APK Size: $(du -h app-debug.apk | cut -f1)"
+
+      - name: Create build summary
+        run: |
+          echo "### Build Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**APK Details:**" >> $GITHUB_STEP_SUMMARY
+          echo "- File: app-debug.apk" >> $GITHUB_STEP_SUMMARY
+          echo "- Size: $(du -h ar-measurement-app/app/build/outputs/apk/debug/app-debug.apk | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Download:**" >> $GITHUB_STEP_SUMMARY
+          echo "Go to the 'Artifacts' section below to download the APK" >> $GITHUB_STEP_SUMMARY

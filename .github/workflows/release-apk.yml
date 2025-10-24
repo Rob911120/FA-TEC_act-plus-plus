@@ -1,0 +1,69 @@
+name: Release AR Measurement APK
+
+on:
+  push:
+    tags:
+      - 'ar-v*.*.*'
+
+jobs:
+  release:
+    name: Create Release with APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: |
+          cd ar-measurement-app
+          chmod +x gradlew || true
+
+      - name: Build release APK
+        run: |
+          cd ar-measurement-app
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Rename APK with version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/ar-v}
+          cd ar-measurement-app/app/build/outputs/apk/release
+          mv app-release-unsigned.apk ar-measurement-${VERSION}.apk || mv app-release.apk ar-measurement-${VERSION}.apk
+          echo "APK_NAME=ar-measurement-${VERSION}.apk" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ar-measurement-app/app/build/outputs/apk/release/${{ env.APK_NAME }}
+          body: |
+            ## AR Mätning v${{ env.VERSION }}
+
+            ### Vad är nytt
+            Se commit-historiken för detaljer.
+
+            ### Installation
+            1. Ladda ner APK-filen nedan
+            2. Överför till din Android-enhet
+            3. Installera (se INSTALLATION.md för detaljer)
+
+            ### Krav
+            - Android 7.0 eller senare
+            - ARCore-kompatibel enhet
+            - Kamerabehörighet
+
+            ### Nedladdning
+            Klicka på APK-filen nedan för att ladda ner.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
