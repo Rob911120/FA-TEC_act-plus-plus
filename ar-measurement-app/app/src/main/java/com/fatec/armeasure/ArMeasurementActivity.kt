@@ -10,6 +10,7 @@ import com.google.ar.core.HitResult
 import com.google.ar.core.Plane
 import com.fatec.armeasure.utils.DxfGenerator
 import com.fatec.armeasure.utils.Point3D
+import com.fatec.armeasure.rendering.BackgroundRenderer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -21,6 +22,8 @@ import android.opengl.GLSurfaceView
 import android.view.MotionEvent
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import android.view.Display
+import android.view.WindowManager
 
 /**
  * Simplified AR measurement activity using pure ARCore
@@ -35,6 +38,7 @@ class ArMeasurementActivity : AppCompatActivity() {
     private lateinit var surfaceView: GLSurfaceView
 
     private var arSession: Session? = null
+    private val backgroundRenderer = BackgroundRenderer()
 
     // List to store captured 3D points
     private val capturedPoints = mutableListOf<Point3D>()
@@ -87,22 +91,34 @@ class ArMeasurementActivity : AppCompatActivity() {
             surfaceView.setRenderer(object : GLSurfaceView.Renderer {
                 override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
                     GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
+
+                    // Initialize background renderer
+                    backgroundRenderer.createOnGlThread(this@ArMeasurementActivity)
+
+                    // Set camera texture
+                    arSession?.setCameraTextureName(backgroundRenderer.getTextureId())
                 }
 
                 override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
                     GLES20.glViewport(0, 0, width, height)
+
+                    // Notify ARCore of display rotation
+                    val display = (getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay
+                    arSession?.setDisplayGeometry(display.rotation, width, height)
                 }
 
                 override fun onDrawFrame(gl: GL10?) {
                     // Clear screen
                     GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-                    // Update AR session
+                    // Update AR session and render camera background
                     arSession?.let { session ->
                         try {
                             val frame = session.update()
-                            // Here we would normally render AR content
-                            // For simplicity, we're just updating the session
+
+                            // Draw camera background
+                            backgroundRenderer.draw(frame)
+
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
