@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AR Mätning</string>
+    <string name="start_measurement">Starta Mätning</string>
+    <string name="add_point">Lägg till Punkt</string>
+    <string name="finish_measurement">Avsluta Mätning</string>
+    <string name="export_dxf">Exportera DXF</string>
+    <string name="reset">Återställ</string>
+    <string name="points_count">Punkter: %d</string>
+    <string name="ar_not_supported">ARCore stöds inte på denna enhet</string>
+    <string name="camera_permission_required">Kamerabehörighet krävs för AR-mätning</string>
+    <string name="dxf_exported">DXF-fil exporterad till: %s</string>
+    <string name="export_failed">Kunde inte exportera DXF-fil</string>
+    <string name="tap_to_place_point">Tryck på skärmen för att placera en punkt</string>
+    <string name="measurement_instructions">1. Tryck på skärmen för att sätta startpunkt (P0)\n2. Flytta telefonen och tryck för varje ny punkt\n3. Exportera till DXF när färdig</string>
+</resources>
