@@ -7,9 +7,9 @@
     android:layout_height="match_parent"
     tools:context=".ArMeasurementActivity">
 
-    <!-- AR Scene View - This will show the camera feed and AR content -->
-    <io.github.sceneview.ar.ArSceneView
-        android:id="@+id/arSceneView"
+    <!-- AR Fragment container - This will show the camera feed and AR content -->
+    <FrameLayout
+        android:id="@+id/arFragmentContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 

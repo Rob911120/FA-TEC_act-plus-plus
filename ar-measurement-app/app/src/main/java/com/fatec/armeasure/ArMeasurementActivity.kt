@@ -8,34 +8,38 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Anchor
 import com.google.ar.core.HitResult
 import com.google.ar.core.Plane
-import io.github.sceneview.ar.ArSceneView
-import io.github.sceneview.ar.node.ArModelNode
-import io.github.sceneview.ar.node.PlacementMode
-import io.github.sceneview.math.Position
-import io.github.sceneview.node.SphereNode
 import com.fatec.armeasure.utils.DxfGenerator
 import com.fatec.armeasure.utils.Point3D
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.ar.core.Config
+import com.google.ar.core.Session
+import android.opengl.GLES20
+import android.opengl.GLSurfaceView
+import android.view.MotionEvent
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.opengles.GL10
 
 /**
- * Main AR measurement activity
+ * Simplified AR measurement activity using pure ARCore
  * Handles AR session, point capture, and DXF export
  */
 class ArMeasurementActivity : AppCompatActivity() {
 
-    private lateinit var arSceneView: ArSceneView
     private lateinit var statusText: TextView
     private lateinit var pointsCountText: TextView
     private lateinit var resetButton: Button
     private lateinit var exportButton: Button
+    private lateinit var surfaceView: GLSurfaceView
+
+    private var arSession: Session? = null
 
     // List to store captured 3D points
     private val capturedPoints = mutableListOf<Point3D>()
 
-    // List to store AR anchors for visual feedback
+    // List to store AR anchors
     private val anchors = mutableListOf<Anchor>()
 
     // Origin point (first point captured)
@@ -46,14 +50,13 @@ class ArMeasurementActivity : AppCompatActivity() {
         setContentView(R.layout.activity_ar_measurement)
 
         // Initialize views
-        arSceneView = findViewById(R.id.arSceneView)
         statusText = findViewById(R.id.statusText)
         pointsCountText = findViewById(R.id.pointsCountText)
         resetButton = findViewById(R.id.resetButton)
         exportButton = findViewById(R.id.exportButton)
 
-        // Setup AR scene
-        setupArScene()
+        // Setup ARCore session
+        setupArSession()
 
         // Setup button listeners
         setupButtons()
@@ -63,74 +66,123 @@ class ArMeasurementActivity : AppCompatActivity() {
     }
 
     /**
-     * Setup the AR scene view and tap listener
+     * Setup ARCore session with basic configuration
      */
-    private fun setupArScene() {
-        // Listen for tap events on the AR scene
-        arSceneView.onTapAr = { hitResult: HitResult, _ ->
-            // Check if we hit a plane (surface detection)
-            val trackable = hitResult.trackable
-            if (trackable is Plane && trackable.isPoseInPolygon(hitResult.hitPose)) {
-                // Create anchor at tap location
-                val anchor = hitResult.createAnchor()
+    private fun setupArSession() {
+        try {
+            // Create AR session
+            arSession = Session(this)
 
-                if (anchor != null) {
-                    // Get 3D position from anchor
-                    val pose = anchor.pose
-                    val point = Point3D(
-                        x = pose.tx(),
-                        y = pose.ty(),
-                        z = pose.tz(),
-                        label = "P${capturedPoints.size}"
-                    )
+            // Configure session for plane detection
+            val config = Config(arSession)
+            config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+            config.planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
+            arSession?.configure(config)
 
-                    // Set origin if this is the first point
-                    if (originPoint == null) {
-                        originPoint = point
-                        statusText.text = "Startpunkt satt! Tryck för fler punkter"
-                    }
-
-                    // Add point to list
-                    capturedPoints.add(point)
-                    anchors.add(anchor)
-
-                    // Add visual marker at the point
-                    addVisualMarker(pose.tx(), pose.ty(), pose.tz())
-
-                    // Update UI
-                    updatePointsCount()
-
-                    // Haptic feedback
-                    arSceneView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+            // Create GLSurfaceView for rendering
+            surfaceView = GLSurfaceView(this)
+            surfaceView.preserveEGLContextOnPause = true
+            surfaceView.setEGLContextClientVersion(2)
+            surfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+            surfaceView.setRenderer(object : GLSurfaceView.Renderer {
+                override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+                    GLES20.glClearColor(0.1f, 0.1f, 0.1f, 1.0f)
                 }
+
+                override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+                    GLES20.glViewport(0, 0, width, height)
+                }
+
+                override fun onDrawFrame(gl: GL10?) {
+                    // Clear screen
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+
+                    // Update AR session
+                    arSession?.let { session ->
+                        try {
+                            val frame = session.update()
+                            // Here we would normally render AR content
+                            // For simplicity, we're just updating the session
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            })
+
+            surfaceView.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+
+            // Add surfaceView to container
+            val container = findViewById<android.widget.FrameLayout>(R.id.arFragmentContainer)
+            container.addView(surfaceView)
+
+            // Setup touch listener for placing points
+            surfaceView.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_UP) {
+                    handleTap(event.x, event.y)
+                }
+                true
             }
+
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to create AR session: ${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
         }
     }
 
     /**
-     * Add a visual sphere marker at the captured point
+     * Handle tap events to place measurement points
      */
-    private fun addVisualMarker(x: Float, y: Float, z: Float) {
-        try {
-            // Create a small sphere to mark the point
-            val sphereNode = SphereNode(
-                engine = arSceneView.engine,
-                radius = 0.02f, // 2cm radius
-                center = Position(x, y, z)
-            )
+    private fun handleTap(x: Float, y: Float) {
+        arSession?.let { session ->
+            try {
+                val frame = session.update()
 
-            // Set color (red for first point, blue for others)
-            val color = if (capturedPoints.size == 1) {
-                com.google.android.filament.utils.Color(1.0f, 0.0f, 0.0f) // Red
-            } else {
-                com.google.android.filament.utils.Color(0.0f, 0.5f, 1.0f) // Blue
+                // Perform hit test at tap location
+                val hits = frame.hitTest(x, y)
+
+                // Find first hit on a plane
+                for (hit in hits) {
+                    val trackable = hit.trackable
+                    if (trackable is Plane && trackable.isPoseInPolygon(hit.hitPose)) {
+                        // Create anchor at hit location
+                        val anchor = hit.createAnchor()
+
+                        // Get 3D position from anchor
+                        val pose = anchor.pose
+                        val point = Point3D(
+                            x = pose.tx(),
+                            y = pose.ty(),
+                            z = pose.tz(),
+                            label = "P${capturedPoints.size}"
+                        )
+
+                        // Set origin if this is the first point
+                        if (originPoint == null) {
+                            originPoint = point
+                            runOnUiThread {
+                                statusText.text = "Startpunkt satt! Tryck för fler punkter"
+                            }
+                        }
+
+                        // Add point to list
+                        capturedPoints.add(point)
+                        anchors.add(anchor)
+
+                        // Update UI
+                        runOnUiThread {
+                            updatePointsCount()
+                        }
+
+                        // Haptic feedback
+                        surfaceView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
-            // Add to scene
-            arSceneView.addChild(sphereNode)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
@@ -164,9 +216,6 @@ class ArMeasurementActivity : AppCompatActivity() {
 
         // Clear origin
         originPoint = null
-
-        // Clear visual markers
-        arSceneView.children.clear()
 
         // Update UI
         updatePointsCount()
@@ -227,16 +276,29 @@ class ArMeasurementActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        arSceneView.onResume(this)
+
+        // Resume AR session
+        try {
+            arSession?.resume()
+            surfaceView.onResume()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to resume AR session: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onPause() {
         super.onPause()
-        arSceneView.onPause(this)
+
+        // Pause AR session
+        surfaceView.onPause()
+        arSession?.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        arSceneView.destroy()
+
+        // Close AR session
+        arSession?.close()
+        arSession = null
     }
 }

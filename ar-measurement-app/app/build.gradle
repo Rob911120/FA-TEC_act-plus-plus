@@ -45,11 +45,8 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
-    // ARCore
+    // ARCore (official Google library)
     implementation 'com.google.ar:core:1.41.0'
-
-    // ARCore Scene View (easier AR development)
-    implementation 'com.gorisse.thomas.sceneview:arsceneview:0.10.0'
 
     // Lifecycle
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.7.0'
