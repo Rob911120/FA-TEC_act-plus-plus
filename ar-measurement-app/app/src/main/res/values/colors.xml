@@ -10,4 +10,5 @@
     <color name="primary">#FF2196F3</color>
     <color name="primary_dark">#FF1976D2</color>
     <color name="accent">#FFFF5722</color>
+    <color name="ic_launcher_background">#FF2196F3</color>
 </resources>
